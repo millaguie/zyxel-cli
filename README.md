@@ -14,8 +14,42 @@ reverse-engineering work from the **ha-zyxel** project:
 - `requests`
 - `pycryptodome`
 
+## Installation
+
+### Recommended: `pipx` (isolated install)
+
+[pipx](https://pipx.pypa.io) installs the CLI into its own virtualenv and puts
+`zyxel-cli` on your `PATH`, without polluting the system Python.
+
 ```bash
+# From a clone of this repo
+pipx install .
+
+# Or directly from git
+pipx install git+https://github.com/millaguie/zyxel-cli
+
+# Upgrade later
+pipx upgrade zyxel-cli
+
+# Uninstall
+pipx uninstall zyxel-cli
+```
+
+### Alternative: `pip`
+
+```bash
+pip install .
+# or just the runtime deps, to use the standalone ./zyxel-cli script:
 pip install requests pycryptodome
+```
+
+### Standalone (no install)
+
+The repo also ships a `zyxel-cli` launcher script at the root. Once deps are
+installed you can run it directly from the clone:
+
+```bash
+./zyxel-cli status
 ```
 
 ## Configuration

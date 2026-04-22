@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zyxel-cli"
+version = "0.1.0"
+description = "CLI tool for managing the Zyxel AX7501-B0 router (Digi ISP) via the DAL API"
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "MIT" }
+authors = [
+    { name = "Millaguie" },
+]
+keywords = ["zyxel", "router", "cli", "digi", "ax7501"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: System :: Networking",
+]
+dependencies = [
+    "requests>=2.25",
+    "pycryptodome>=3.10",
+]
+
+[project.scripts]
+zyxel-cli = "zyxel_cli.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/millaguie/zyxel-cli"
+
+[tool.setuptools.packages.find]
+include = ["zyxel_cli*"]
