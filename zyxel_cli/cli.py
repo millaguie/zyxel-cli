@@ -600,24 +600,6 @@ def cmd_raw(router, args):
 # CLI argument parser
 # ---------------------------------------------------------------------------
 
-def _default_password():
-    if "ZYXEL_PASS" in os.environ:
-        return os.environ["ZYXEL_PASS"]
-    try:
-        import subprocess
-        out = subprocess.check_output(
-            ["pass", "personal/evilio-home/router-credentials"],
-            stderr=subprocess.DEVNULL,
-            text=True,
-        )
-        for line in out.splitlines():
-            if line.startswith("pass:"):
-                return line.split(":", 1)[1].strip()
-    except Exception:
-        pass
-    return "user"
-
-
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="zyxel-cli",
@@ -625,7 +607,7 @@ def build_parser():
     )
     parser.add_argument("--host", default=os.environ.get("ZYXEL_HOST", "192.168.1.1"))
     parser.add_argument("--user", default=os.environ.get("ZYXEL_USER", "user"))
-    parser.add_argument("--password", default=_default_password())
+    parser.add_argument("--password", default=os.environ.get("ZYXEL_PASS", "user"))
 
     sub = parser.add_subparsers(dest="command", required=True)
 
