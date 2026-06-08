@@ -198,6 +198,9 @@ class ZyxelRouter:
             "Enable": True,
             "MACAddr": mac,
             "IPAddr": ip,
+            # BrWan binds the lease to the LAN bridge; the router rejects the
+            # write (closing the connection) without it.
+            "BrWan": "Default",
         })
         return result.get("result") == "ZCFG_SUCCESS"
 
