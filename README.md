@@ -101,6 +101,22 @@ zyxel-cli nat delete "Web Server"
 zyxel-cli nat delete --index 2
 ```
 
+### Static routes
+
+```bash
+zyxel-cli route list
+# route a subnet reachable through a gateway on your LAN:
+zyxel-cli route add remote-lan 10.0.0.0 255.255.255.0 192.168.1.2
+# route a destination out a specific WAN interface instead of the LAN:
+zyxel-cli route add via-wan 203.0.113.0 255.255.255.0 0.0.0.0 --interface IP.Interface.3
+zyxel-cli route delete remote-lan
+zyxel-cli route delete --index 1
+```
+
+`--interface` defaults to `Default` (the LAN bridge; the router resolves it to
+`IP.Interface.1`). Pass a WAN interface path (see `zyxel-cli raw wan` for the
+`ipIfacePath` values, e.g. `IP.Interface.3`) to route via that WAN.
+
 ### WAN / public IP
 
 ```bash

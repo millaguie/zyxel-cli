@@ -231,6 +231,33 @@ class ZyxelRouter:
         result = self._dal_delete("nat", index)
         return result.get("result") == "ZCFG_SUCCESS"
 
+    # -- Static routes ------------------------------------------------------
+
+    def get_static_routes(self):
+        return self._dal_get("static_route").get("Object", [])
+
+    def add_static_route(self, name, dest, mask, gateway, interface="Default"):
+        result = self._dal_post("static_route", {
+            "Enable": True,
+            "Name": name,
+            "IPType": 0,
+            "ipver": "IPv4",
+            "DestIPAddress": dest,
+            "DestSubnetMask": mask,
+            "GatewayIPAddress": gateway,
+            "UseGateIpAddr": True,
+            # "Interface" is required (the router rejects the write without it).
+            # "Default" binds the route to the LAN bridge; the router resolves
+            # it to IP.Interface.1. Pass a WAN interface path (e.g.
+            # IP.Interface.3) to route the destination out a specific WAN.
+            "Interface": interface,
+        })
+        return result.get("result") == "ZCFG_SUCCESS"
+
+    def delete_static_route(self, index):
+        result = self._dal_delete("static_route", index)
+        return result.get("result") == "ZCFG_SUCCESS"
+
     # -- WAN ----------------------------------------------------------------
 
     def get_wan_info(self):
@@ -521,6 +548,68 @@ def cmd_nat(router, args):
     {"list": cmd_nat_list, "add": cmd_nat_add, "delete": cmd_nat_delete}[args.nat_command](router, args)
 
 
+# -- route ------------------------------------------------------------------
+
+def cmd_route_list(router, _args):
+    routes = router.get_static_routes()
+    if not routes:
+        print("No static routes found.")
+        return
+
+    idx_w = max(len(str(e["Index"])) for e in routes)
+    name_w = max(len(e.get("Name", "")) for e in routes)
+    name_w = max(name_w, 4)
+
+    print(f"{'#':<{idx_w}}  {'Name':<{name_w}}  {'Destination':<18}  {'Subnet Mask':<15}  {'Gateway':<15}  On")
+    print(f"{'-' * idx_w}  {'-' * name_w}  {'-' * 18}  {'-' * 15}  {'-' * 15}  {'-' * 3}")
+    for e in routes:
+        enabled = "yes" if e.get("Enable") else "no"
+        dest = f"{e.get('DestIPAddress', '')}"
+        print(f"{e['Index']:<{idx_w}}  {e.get('Name', ''):<{name_w}}  {dest:<18}  {e.get('DestSubnetMask', ''):<15}  {e.get('GatewayIPAddress', ''):<15}  {enabled}")
+    print(f"\n{len(routes)} routes total.")
+
+
+def cmd_route_add(router, args):
+    routes = router.get_static_routes()
+    for e in routes:
+        if e.get("Name", "") == args.name:
+            print(f"Route '{args.name}' already exists "
+                  f"(#{e['Index']} -> {e.get('DestIPAddress')}/{e.get('DestSubnetMask')})")
+            print("Delete it first if you want to change it.", file=sys.stderr)
+            sys.exit(1)
+
+    if router.add_static_route(args.name, args.dest, args.mask, args.gateway, args.interface):
+        print(f"Added: {args.name} -> {args.dest}/{args.mask} via {args.gateway}")
+    else:
+        print("Failed to add static route.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_route_delete(router, args):
+    if args.index is not None:
+        if router.delete_static_route(args.index):
+            print(f"Deleted route #{args.index}")
+        else:
+            print(f"Failed to delete route #{args.index}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        routes = router.get_static_routes()
+        for e in routes:
+            if e.get("Name", "") == args.name:
+                if router.delete_static_route(e["Index"]):
+                    print(f"Deleted: {e['Name']} -> {e.get('DestIPAddress')}/{e.get('DestSubnetMask')} (#{e['Index']})")
+                else:
+                    print(f"Failed to delete route '{args.name}'", file=sys.stderr)
+                    sys.exit(1)
+                return
+        print(f"No route found with name '{args.name}'", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_route(router, args):
+    {"list": cmd_route_list, "add": cmd_route_add, "delete": cmd_route_delete}[args.route_command](router, args)
+
+
 # -- wan --------------------------------------------------------------------
 
 def cmd_wan(router, _args):
@@ -665,6 +754,24 @@ def build_parser():
     nat_del.add_argument("description", nargs="?", help="Rule description to delete")
     nat_del.add_argument("--index", type=int, help="Delete by index number")
 
+    # route
+    route_parser = sub.add_parser("route", help="Manage static routes")
+    route_sub = route_parser.add_subparsers(dest="route_command", required=True)
+
+    route_sub.add_parser("list", help="List static routes")
+
+    route_add = route_sub.add_parser("add", help="Add a static route")
+    route_add.add_argument("name", help="Route name (e.g. remote-lan)")
+    route_add.add_argument("dest", help="Destination network (e.g. 10.0.0.0)")
+    route_add.add_argument("mask", help="Subnet mask (e.g. 255.255.255.0)")
+    route_add.add_argument("gateway", help="Gateway IP (e.g. 192.168.1.2)")
+    route_add.add_argument("--interface", default="Default",
+                           help="Interface: 'Default' = LAN bridge (default), or a WAN path like IP.Interface.3")
+
+    route_del = route_sub.add_parser("delete", help="Delete a static route")
+    route_del.add_argument("name", nargs="?", help="Route name to delete")
+    route_del.add_argument("--index", type=int, help="Delete by index number")
+
     # wan
     sub.add_parser("wan", help="Show WAN / public IP info")
 
@@ -696,12 +803,16 @@ def main():
     if args.command == "nat" and args.nat_command == "delete":
         if not args.description and args.index is None:
             parser.error("nat delete requires either a description or --index")
+    if args.command == "route" and args.route_command == "delete":
+        if not args.name and args.index is None:
+            parser.error("route delete requires either a name or --index")
 
     dispatch = {
         "status": cmd_status,
         "dns": cmd_dns,
         "dhcp": cmd_dhcp,
         "nat": cmd_nat,
+        "route": cmd_route,
         "wan": cmd_wan,
         "wifi": cmd_wifi,
         "raw": cmd_raw,
