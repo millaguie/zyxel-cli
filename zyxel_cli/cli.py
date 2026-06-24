@@ -25,6 +25,10 @@ from Crypto.Util.Padding import pad
 # Router API client
 # ---------------------------------------------------------------------------
 
+class ZyxelError(Exception):
+    """Error reportado por el router (p.ej. login rechazado) o respuesta inesperada."""
+
+
 class ZyxelRouter:
     """Client for the Zyxel AX7501-B0 DAL API with AES+RSA encryption."""
 
@@ -103,6 +107,12 @@ class ZyxelRouter:
     # -- Crypto -------------------------------------------------------------
 
     def _decrypt_response(self, resp_json):
+        # El router devuelve respuestas de error (p.ej. login rechazado con HTTP 401
+        # {"result":"Invalid Username or Password"}) en CLARO, sin los campos iv/content de
+        # las respuestas cifradas. Detectarlo y reportar el mensaje real en vez de un
+        # KeyError críptico sobre "iv".
+        if "iv" not in resp_json or "content" not in resp_json:
+            raise ZyxelError(resp_json.get("result") or f"respuesta no cifrada del router: {resp_json}")
         resp_iv = base64.b64decode(resp_json["iv"])[:16]
         cipher = AES.new(self.aes_key, AES.MODE_CBC, resp_iv)
         decrypted = cipher.decrypt(base64.b64decode(resp_json["content"]))
@@ -822,6 +832,9 @@ def main():
     try:
         router.login()
         dispatch[args.command](router, args)
+    except ZyxelError as e:
+        print(f"Error del router: {e}", file=sys.stderr)
+        sys.exit(1)
     finally:
         router.logout()
 
