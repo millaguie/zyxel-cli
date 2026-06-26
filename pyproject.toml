@@ -16,6 +16,7 @@ keywords = ["zyxel", "router", "cli", "digi", "ax7501"]
 classifiers = [
     "Environment :: Console",
     "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
@@ -31,6 +32,8 @@ zyxel-cli = "zyxel_cli.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/millaguie/zyxel-cli"
+Repository = "https://github.com/millaguie/zyxel-cli"
+Issues = "https://github.com/millaguie/zyxel-cli/issues"
 
 [tool.setuptools.packages.find]
 include = ["zyxel_cli*"]
