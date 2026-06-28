@@ -1,0 +1,14 @@
+# Python build / packaging artifacts
+build/
+dist/
+*.egg-info/
+__pycache__/
+*.py[cod]
+.eggs/
+
+# Virtualenvs / tooling caches
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
