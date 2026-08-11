@@ -797,7 +797,12 @@ def build_parser():
     )
     parser.add_argument("--host", default=os.environ.get("ZYXEL_HOST", "192.168.1.1"))
     parser.add_argument("--user", default=os.environ.get("ZYXEL_USER", "user"))
-    parser.add_argument("--password", default=os.environ.get("ZYXEL_PASS", "user"))
+    # No default password on purpose. A placeholder default (this used to be the
+    # literal string "user") silently sends a bogus login to the router whenever
+    # ZYXEL_PASS is not exported, and enough of those trip the router's account
+    # lockout -- after which even the CORRECT password is rejected with
+    # "Invalid Username or Password", which looks exactly like expired credentials.
+    parser.add_argument("--password", default=os.environ.get("ZYXEL_PASS"))
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -943,6 +948,15 @@ def main():
         "wifi": cmd_wifi,
         "raw": cmd_raw,
     }
+
+    if not args.password:
+        parser.error(
+            "no password given: export ZYXEL_PASS (preferred, keeps it out of the "
+            "shell history and of ps output) or pass --password. Aborting before "
+            "contacting the router on purpose: a failed login counts towards the "
+            "account lockout, and once locked the router rejects the correct "
+            "password too."
+        )
 
     router = ZyxelRouter(args.host, args.user, args.password)
     try:
