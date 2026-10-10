@@ -20,7 +20,6 @@ from Crypto.Cipher import AES, PKCS1_v1_5
 from Crypto.PublicKey import RSA
 from Crypto.Util.Padding import pad
 
-
 # ---------------------------------------------------------------------------
 # Router API client
 # ---------------------------------------------------------------------------
@@ -107,7 +106,9 @@ class ZyxelRouter:
                     f"{self.url}/cgi-bin/UserLogout?sessionkey={self.sessionkey}",
                     timeout=5,
                 )
-            except Exception:
+            except requests.RequestException:
+                # Best-effort logout: the session dies with the process anyway,
+                # so a failed logout must not mask the command's result.
                 pass
 
     # -- Crypto -------------------------------------------------------------
@@ -903,18 +904,34 @@ def main():
     args = parser.parse_args()
 
     # Validate delete commands that need either a name or --index
-    if args.command == "dns" and args.dns_command == "delete":
-        if not args.hostname and args.index is None:
-            parser.error("dns delete requires either a hostname or --index")
-    if args.command == "dhcp" and args.dhcp_command == "delete":
-        if not args.mac and args.index is None:
-            parser.error("dhcp delete requires either a MAC address or --index")
-    if args.command == "nat" and args.nat_command == "delete":
-        if not args.description and args.index is None:
-            parser.error("nat delete requires either a description or --index")
-    if args.command == "route" and args.route_command == "delete":
-        if not args.name and args.index is None:
-            parser.error("route delete requires either a name or --index")
+    if (
+        args.command == "dns"
+        and args.dns_command == "delete"
+        and not args.hostname
+        and args.index is None
+    ):
+        parser.error("dns delete requires either a hostname or --index")
+    if (
+        args.command == "dhcp"
+        and args.dhcp_command == "delete"
+        and not args.mac
+        and args.index is None
+    ):
+        parser.error("dhcp delete requires either a MAC address or --index")
+    if (
+        args.command == "nat"
+        and args.nat_command == "delete"
+        and not args.description
+        and args.index is None
+    ):
+        parser.error("nat delete requires either a description or --index")
+    if (
+        args.command == "route"
+        and args.route_command == "delete"
+        and not args.name
+        and args.index is None
+    ):
+        parser.error("route delete requires either a name or --index")
 
     dispatch = {
         "status": cmd_status,
