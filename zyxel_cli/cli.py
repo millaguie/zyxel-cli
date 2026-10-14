@@ -302,6 +302,21 @@ class ZyxelRouter:
     def get_wan_info(self):
         return self._dal_get("wan").get("Object", [])
 
+    # -- ISP provisioning (PPPoE, SIP, GPON) --------------------------------
+
+    def get_sip_accounts(self):
+        return self._dal_get("sip_account").get("Object", [])
+
+    def get_sip_providers(self):
+        return self._dal_get("sip_sp").get("Object", [])
+
+    def get_phones(self):
+        return self._dal_get("phone").get("Object", [])
+
+    def get_gpon(self):
+        objects = self._dal_get("gpon").get("Object", [])
+        return objects[0] if objects else {}
+
     # -- WiFi ---------------------------------------------------------------
 
     def get_wifi_info(self):
@@ -740,6 +755,129 @@ def cmd_wan(router, _args):
         print()
 
 
+# -- pppoe / sip / gpon -----------------------------------------------------
+# What you need to replace the ISP router with your own one.
+
+
+def secret(value, show):
+    if not value:
+        return ""
+    return value if show else "******  (use --show-secrets)"
+
+
+def cmd_pppoe(router, args):
+    ifaces = [i for i in router.get_wan_info() if i.get("Encapsulation") == "PPPoE"]
+    if not ifaces:
+        print("No PPPoE interfaces found.")
+        return
+
+    for iface in ifaces:
+        print(f"--- {iface.get('Name', '?')} ---")
+        print(f"  User:         {iface.get('pppUsername', '')}")
+        print(f"  Password:     {secret(iface.get('pppPassword'), args.show_secrets)}")
+        print(
+            f"  VLAN:         {iface.get('VLANID', '?')} (priority {iface.get('VLANPriority', '?')})"
+        )
+        print(f"  MTU:          {iface.get('MaxMTUSize', '?')}")
+        print(f"  IP mode:      {iface.get('ipMode', '?')}")
+        print(f"  IP:           {iface.get('IPAddress', '?')}")
+        print(f"  DNS:          {iface.get('DNSServer', '?')}")
+        print(f"  DNS6:         {iface.get('DNS6Server', '?')}")
+        print()
+
+
+def cmd_sip(router, args):
+    providers = {p.get("profileIdx"): p for p in router.get_sip_providers()}
+    wan = {i.get("ipIfacePath"): i for i in router.get_wan_info()}
+    accounts = [a for a in router.get_sip_accounts() if a.get("Enable") == "Enabled"]
+    if not accounts:
+        print("No enabled SIP accounts found.")
+        return
+
+    for acc in accounts:
+        sp = providers.get(acc.get("profileIdx"), {})
+        print(f"--- {acc.get('SipAccount', '?')} ({acc.get('Status', '?')}) ---")
+        print(f"  Number:       {acc.get('DirectoryNumber', '')}")
+        print(f"  User:         {acc.get('AuthUserName', '')}")
+        print(f"  Password:     {secret(acc.get('AuthPassword'), args.show_secrets)}")
+        print(f"  Domain:       {sp.get('UserAgentDomain', '?')}")
+        print(
+            f"  Registrar:    {sp.get('RegistrarServer', '?')}:{sp.get('RegistrarServerPort', '?')}"
+            f" {sp.get('RegistrarServerTransport', '')}"
+        )
+        print(
+            f"  Proxy:        {sp.get('ProxyServer', '?')}:{sp.get('ProxyServerPort', '?')}"
+            f" {sp.get('ProxyServerTransport', '')}"
+        )
+        print(
+            f"  Outbound:     {sp.get('OutboundProxy', '?')}:{sp.get('OutboundProxyPort', '?')}"
+        )
+        print(f"  Local port:   {sp.get('UserAgentPort', '?')}")
+        print(
+            f"  RTP ports:    {sp.get('LocalPortMin', '?')}-{sp.get('LocalPortMax', '?')}"
+        )
+        codecs = [
+            acc.get(k)
+            for k in ("primaryCodec", "secondarydCodec", "thirdCodec")
+            if acc.get(k)
+        ]
+        print(f"  Codecs:       {', '.join(codecs)}")
+        print(f"  DTMF:         {sp.get('DTMFMethod', '?')}")
+        print(f"  Fax:          {sp.get('X_ZYXEL_FaxMode', '?')}")
+        print(f"  Register:     every {sp.get('RegisterExpires', '?')} s")
+
+        # Voice usually rides its own WAN interface (own VLAN, own private DNS).
+        for path in filter(None, sp.get("BoundIfList", "").split(",")):
+            iface = wan.get(path)
+            if not iface:
+                continue
+            print(
+                f"  Voice WAN:    {iface.get('Name', '?')} ({iface.get('Encapsulation', '?')})"
+            )
+            print(
+                f"    VLAN:       {iface.get('VLANID', '?')} (priority {iface.get('VLANPriority', '?')})"
+            )
+            mode = "static" if iface.get("ipStatic") else "DHCP"
+            print(
+                f"    IP:         {iface.get('IPAddress', '?')}/{iface.get('SubnetMask', '?')} ({mode})"
+            )
+            print(f"    Gateway:    {iface.get('GatewayIPAddress', '?')}")
+            print(f"    DNS:        {iface.get('DNSServer', '?')}")
+        print()
+
+
+def cmd_gpon(router, args):
+    gpon = router.get_gpon()
+    status = router.get_status()
+    dev = status.get("DeviceInfo", {})
+    optic = status.get("GponStatsInfo", {}).get("gponStatusObj", {})
+
+    slid = gpon.get("SLID", "")
+    if slid.startswith("0x"):
+        try:
+            slid = f"{bytes.fromhex(slid[2:]).decode()} ({slid})"
+        except ValueError:
+            pass
+
+    print(f"Serial (SN):  {dev.get('X_ZYXEL_GponSerialNumber', '?')}")
+    print(f"PLOAM/SLID:   {secret(slid, args.show_secrets)}")
+    print(f"ONU mode:     {gpon.get('OnuOperationMode', '?')}")
+    if optic.get("SFP_Presence"):
+        print(
+            f"SFP:          {optic.get('SFP_Vendor', '?')} {optic.get('SFP_Model', '?')}"
+            f" (serial {optic.get('SFP_Serial', '?')})"
+        )
+    if optic.get("bosa_presence"):
+        # BOSA = optics only: the GPON MAC, SN and PLOAM live in the router SoC,
+        # not in the removable module.
+        print(
+            "              BOSA only: a third-party router needs a full ONU stick or ONT"
+        )
+    print(f"RX power:     {optic.get('RxPowerSignal', '?')} dBm")
+    print(f"TX power:     {optic.get('TxPowerSignal', '?')} dBm")
+    print(f"Temperature:  {optic.get('Temperature', '?')} C")
+
+
 # -- wifi -------------------------------------------------------------------
 
 
@@ -892,6 +1030,18 @@ def build_parser():
     # wifi
     sub.add_parser("wifi", help="Show WiFi SSIDs and settings")
 
+    for name, help_text in (
+        ("pppoe", "Show PPPoE credentials and Internet WAN settings"),
+        ("sip", "Show SIP (VoIP) account, servers and voice WAN"),
+        ("gpon", "Show GPON serial, PLOAM password and optics"),
+    ):
+        p = sub.add_parser(name, help=help_text)
+        p.add_argument(
+            "--show-secrets",
+            action="store_true",
+            help="Print passwords in clear text (hidden by default)",
+        )
+
     # raw
     raw_parser = sub.add_parser("raw", help="Query any DAL OID (raw JSON output)")
     raw_parser.add_argument("oid", help="OID name (e.g. lan, firewall, gpon)")
@@ -946,6 +1096,9 @@ def main():
         "route": cmd_route,
         "wan": cmd_wan,
         "wifi": cmd_wifi,
+        "pppoe": cmd_pppoe,
+        "sip": cmd_sip,
+        "gpon": cmd_gpon,
         "raw": cmd_raw,
     }
 

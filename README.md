@@ -133,6 +133,25 @@ zyxel-cli wifi
 
 Shows all SSIDs with band, channel, bandwidth, security mode, and visibility.
 
+### ISP provisioning: PPPoE, SIP and GPON
+
+```bash
+zyxel-cli pppoe
+zyxel-cli sip
+zyxel-cli gpon
+zyxel-cli pppoe --show-secrets
+```
+
+Shows what you need to replace the ISP router with your own one:
+
+- `pppoe`: PPPoE user and password, VLAN, MTU, IP mode and DNS servers.
+- `sip`: VoIP number, SIP user and password, registrar, proxy, codecs, and the
+  voice WAN interface (VLAN, IP, gateway, DNS).
+- `gpon`: GPON serial number, PLOAM password (SLID), SFP module and optical
+  power.
+
+Passwords are hidden by default. Add `--show-secrets` to print them.
+
 ### Raw OID query
 
 ```bash
