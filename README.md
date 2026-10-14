@@ -125,6 +125,30 @@ zyxel-cli wan
 
 Shows IP address, gateway, DNS servers, encapsulation, VLAN, PPP info, and IPv6.
 
+### WAN DNS servers
+
+The router answers the DNS queries of the LAN and forwards them to these
+servers. By default they come from the ISP.
+
+```bash
+# Show the change, apply nothing
+zyxel-cli wan set-dns --ipv4 208.67.222.222,208.67.220.220 \
+    --ipv6 2620:119:35::35,2620:119:53::53
+
+# Apply it
+zyxel-cli wan set-dns --ipv4 208.67.222.222,208.67.220.220 \
+    --ipv6 2620:119:35::35,2620:119:53::53 --yes
+
+# Back to the ISP DNS servers
+zyxel-cli wan set-dns --auto --yes
+```
+
+It changes the interface with the default gateway. Use `--interface NAME` for
+another one. Without `--ipv6`, IPv6 DNS comes from the ISP.
+
+> ⚠️ The router re-applies the interface: a PPPoE link drops for about 20 s and
+> the public IP may change.
+
 ### WiFi information
 
 ```bash

@@ -151,8 +151,15 @@ class ZyxelRouter:
         return self._decrypt_response(r.json())
 
     def _dal_post(self, oid, data):
+        return self._dal_write("POST", oid, data)
+
+    def _dal_put(self, oid, data, timeout=10):
+        return self._dal_write("PUT", oid, data, timeout)
+
+    def _dal_write(self, method, oid, data, timeout=10):
         encrypted = self._encrypt_request(data)
-        r = self.session.post(
+        r = self.session.request(
+            method,
             f"{self.url}/cgi-bin/DAL?oid={oid}&sessionkey={self.sessionkey}",
             data=encrypted.encode("utf-8"),
             headers={
@@ -160,7 +167,7 @@ class ZyxelRouter:
                 "CSRFToken": self.sessionkey,
                 "If-Modified-Since": "Thu, 01 Jun 1970 00:00:00 GMT",
             },
-            timeout=10,
+            timeout=timeout,
         )
         if r.status_code == 403:
             print("Error: 403 Forbidden (insufficient permissions?)", file=sys.stderr)
@@ -168,7 +175,12 @@ class ZyxelRouter:
         if not r.text.strip():
             print("Error: empty response from router", file=sys.stderr)
             sys.exit(1)
-        return self._decrypt_response(r.json())
+        result = self._decrypt_response(r.json())
+        # The router rotates the session key on every write: without this the
+        # next write (or the logout) of the same session gets a 403.
+        if result.get("sessionkey"):
+            self.sessionkey = result["sessionkey"]
+        return result
 
     def _dal_delete(self, oid, index):
         encrypted = self._encrypt_request({})
@@ -301,6 +313,31 @@ class ZyxelRouter:
 
     def get_wan_info(self):
         return self._dal_get("wan").get("Object", [])
+
+    def get_wan_interface(self, index):
+        r = self.session.get(
+            f"{self.url}/cgi-bin/DAL?oid=wan&sessionkey={self.sessionkey}"
+            f"&DalGetOneObject=y&Index={index}",
+            timeout=20,
+        )
+        objects = self._decrypt_response(r.json()).get("Object", [])
+        return objects[0] if objects else {}
+
+    def set_wan_dns(self, index, dns4=None, dns6=None):
+        """Set static DNS servers on a WAN interface (None = back to the ISP ones).
+
+        Same flow as the web UI: read the whole interface and PUT it back.
+        The router re-applies the interface, so a PPPoE link reconnects.
+        """
+        iface = self.get_wan_interface(index)
+        if not iface:
+            raise ZyxelError(f"WAN interface with index {index} not found")
+        iface["ipDnsStatic"] = dns4 is not None
+        iface["DNSServer"] = dns4 or ""
+        iface["ip6DnsStatic"] = dns6 is not None
+        iface["DNS6Server"] = dns6 or ""
+        result = self._dal_put("wan", iface, timeout=60)
+        return result.get("result") == "ZCFG_SUCCESS"
 
     # -- ISP provisioning (PPPoE, SIP, GPON) --------------------------------
 
@@ -755,6 +792,52 @@ def cmd_wan(router, _args):
         print()
 
 
+def cmd_wan_set_dns(router, args):
+    ifaces = router.get_wan_info()
+    if args.interface:
+        matches = [i for i in ifaces if i.get("Name") == args.interface]
+    else:
+        matches = [i for i in ifaces if i.get("sysGwEnable")]
+    if len(matches) != 1:
+        names = ", ".join(i.get("Name", "?") for i in ifaces)
+        print(
+            f"Pick one WAN interface with --interface (available: {names})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    iface = matches[0]
+
+    dns4 = None if args.auto else args.ipv4
+    dns6 = None if args.auto else args.ipv6
+    print(f"Interface:    {iface.get('Name', '?')}")
+    print(f"DNS now:      {iface.get('DNSServer', '')}")
+    print(f"DNS6 now:     {iface.get('DNS6Server', '')}")
+    print(f"DNS new:      {dns4 or '(from ISP)'}")
+    print(f"DNS6 new:     {dns6 or '(from ISP)'}")
+
+    if not args.yes:
+        sys.stdout.flush()
+        print(
+            "\nThe router re-applies the interface: a PPPoE link drops for ~20 s "
+            "and the public IP may change. Run again with --yes to apply.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if router.set_wan_dns(iface.get("index"), dns4, dns6):
+        print("Applied.")
+    else:
+        print("Failed to apply DNS settings.", file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_wan_dispatch(router, args):
+    if args.wan_command == "set-dns":
+        cmd_wan_set_dns(router, args)
+    else:
+        cmd_wan(router, args)
+
+
 # -- pppoe / sip / gpon -----------------------------------------------------
 # What you need to replace the ISP router with your own one.
 
@@ -1025,7 +1108,29 @@ def build_parser():
     route_del.add_argument("--index", type=int, help="Delete by index number")
 
     # wan
-    sub.add_parser("wan", help="Show WAN / public IP info")
+    wan_parser = sub.add_parser("wan", help="Show WAN / public IP info, set WAN DNS")
+    wan_sub = wan_parser.add_subparsers(dest="wan_command")
+    wan_dns = wan_sub.add_parser(
+        "set-dns", help="Set the DNS servers the router forwards queries to"
+    )
+    wan_dns_mode = wan_dns.add_mutually_exclusive_group(required=True)
+    wan_dns_mode.add_argument(
+        "--ipv4",
+        help="IPv4 servers, comma separated (e.g. 208.67.222.222,208.67.220.220)",
+    )
+    wan_dns_mode.add_argument(
+        "--auto", action="store_true", help="Go back to the DNS servers of the ISP"
+    )
+    wan_dns.add_argument(
+        "--ipv6", help="IPv6 servers, comma separated (unset = from the ISP)"
+    )
+    wan_dns.add_argument(
+        "--interface",
+        help="WAN interface name (default: the one with the default gateway)",
+    )
+    wan_dns.add_argument(
+        "--yes", action="store_true", help="Apply (without it, only show the change)"
+    )
 
     # wifi
     sub.add_parser("wifi", help="Show WiFi SSIDs and settings")
@@ -1087,6 +1192,13 @@ def main():
         and args.index is None
     ):
         parser.error("route delete requires either a name or --index")
+    if (
+        args.command == "wan"
+        and args.wan_command == "set-dns"
+        and args.auto
+        and args.ipv6
+    ):
+        parser.error("wan set-dns: --ipv6 cannot be used with --auto")
 
     dispatch = {
         "status": cmd_status,
@@ -1094,7 +1206,7 @@ def main():
         "dhcp": cmd_dhcp,
         "nat": cmd_nat,
         "route": cmd_route,
-        "wan": cmd_wan,
+        "wan": cmd_wan_dispatch,
         "wifi": cmd_wifi,
         "pppoe": cmd_pppoe,
         "sip": cmd_sip,
